@@ -140,8 +140,73 @@ func (m *marbleChainCode)initMarble(stub shim.ChaincodeStubInterface,args []stri
 	if err != nil{
 		return shim.Error(err.Error())
 	}
+	// 以复合键为键、0x00为值，将复合键记录到账本中
 	value := []byte{0x00}
 	stub.PutState(colorNameIndexKey,value)
 	fmt.Println(" -end init marble")
 	return shim.Success(nil)
+}
+
+
+// readMarble, 用于读取Marble的值，并返回
+// 输入参数形如：["reaMarble","marble1"]
+func (m *marbleChainCode)readMarble(stub shim.ChaincodeStubInterface, args []string) pb.Response{
+	if len(args) != 1{
+		return shim.Error("Incorrect number of arguments. Excepting name of the marble to query")
+	}
+
+	marbleName := args[0]
+	marbleBytes, err := stub.GetState(marbleName)
+
+	if err != nil{
+		return shim.Error("Failed to get"+ marbleName+ err.Error())
+	}
+	if marbleBytes == nil{
+		return shim.Error(marbleName+"not exist ! ")
+	}
+
+	// 将读取的数据字符串化，并输出
+	marbleValue := string(marbleBytes)
+	fmt.Println(marbleValue)
+	return shim.Success(marbleBytes)
+}
+
+
+// 删除marble
+// 传入的参数为 ["delete","marble1"]
+// 删除之前，需要先从账本中读取，确保该marble存在。
+func (m *marbleChainCode)delete(stub shim.ChaincodeStubInterface,args []string) pb.Response  {
+	var marbleName string
+	var err error
+	var marbleJson marble
+
+	if len(args) != 1{
+		return shim.Error("Incorrect number of arguments.Excepting name of marble to delete")
+	}
+
+	marbleName = args[0]
+
+	valAsbytes, err := stub.GetState(marbleName)
+	if err != nil{
+		jsonResp := "{\"Error\":\"Failed to get state for " +marbleName+ "\"}"
+		return shim.Error(jsonResp)
+	}
+	if valAsbytes == nil{
+		jsonResp :="{\"Error\":\"Marble does not exist !"+ marbleName+ "\"}"
+		return shim.Error(jsonResp)
+	}
+
+	// 将json转换为结构体
+	err = json.Unmarshal([]byte(valAsbytes),&marbleJson)
+	if err != nil{
+		jsonResp := "{\"Error\":\"Failed to decode JSON of: " + marbleName + "\"}"
+		return shim.Error(jsonResp)
+	}
+
+	err = stub.DelState(marbleName)
+	if err != nil{
+		return shim.Error("Failed to delete state!" + err.Error())
+	}
+	return shim.Success(nil)
+
 }
