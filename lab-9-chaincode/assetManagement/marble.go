@@ -8,6 +8,7 @@ import (
 	"strings"
 	"encoding/json"
 	"bytes"
+	"time"
 )
 
 /*
@@ -386,14 +387,120 @@ func (m *marbleChainCode)queryMarblesByOwner(stub shim.ChaincodeStubInterface,ar
 
 }
 
+// 获取历史的marble
 func (m *marbleChainCode)getHistoryForMarble(stub shim.ChaincodeStubInterface,args []string) pb.Response{
+	if len(args) < 1 {
+		return shim.Error("Incorrect number of arguments. Expecting 1")
+	}
 
+	marbleName := args[0]
 
+	fmt.Printf("- start getHistoryForMarble: %s\n", marbleName)
+
+	resultsIterator , err := stub.GetHistoryForKey(marbleName)
+	if err != nil{
+		return shim.Error(err.Error())
+	}
+
+	defer resultsIterator.Close()
+
+	var buffer bytes.Buffer
+	bArrayMemberAlreadyWritten := false
+
+	for resultsIterator.HasNext(){
+		response, err := resultsIterator.Next()
+		if err != nil{
+			return shim.Error(err.Error())
+		}
+		if bArrayMemberAlreadyWritten == true{
+			buffer.WriteString(",")
+		}
+
+		buffer.WriteString("{\"TxId\":")
+		buffer.WriteString("\"")
+		buffer.WriteString(response.TxId)
+		buffer.WriteString("\"")
+		buffer.WriteString(",\"Value\":")
+		if response.IsDelete {
+			buffer.WriteString("null")
+		} else {
+			buffer.WriteString(string(response.Value))
+		}
+
+		buffer.WriteString(", \"Timestamp\":")
+		buffer.WriteString("\"")
+		buffer.WriteString(time.Unix(response.Timestamp.Seconds, int64(response.Timestamp.Nanos)).String())
+		buffer.WriteString("\"")
+
+		buffer.WriteString(", \"IsDelete\":")
+		buffer.WriteString("\"")
+		buffer.WriteString(strconv.FormatBool(response.IsDelete))
+		buffer.WriteString("\"")
+
+		buffer.WriteString("}")
+		bArrayMemberAlreadyWritten = true
+	}
+	buffer.WriteString("]")
+
+	fmt.Printf("- getHistoryForMarble returning:\n%s\n",buffer.String())
+
+	return shim.Success(buffer.Bytes())
 }
 
+// 返回一定返回内的Marble ["getMarbleByRange","marble1","marble3"]
+/*
+	基本思路：
+		- 检验参数合法性
+		- 从账本中返回迭代器
+   		- 将迭代器转化为json数组返回之
+*/
 func (m *marbleChainCode)getMarblesByRange(stub shim.ChaincodeStubInterface,args []string) pb.Response{
+	if len(args) != 2{
+		return shim.Error("Incorrect Number of arguments. Excepting 2")
+	}
 
+	fromKey := args[0]
+	endKey := args[1]
 
+	resultIterator, err := stub.GetStateByRange(fromKey,endKey)
+
+	if err != nil{
+		return shim.Error(err.Error())
+	}
+
+	// 务必记住，调用了Iterator迭代器之后，需要用Close方法将其关闭
+	defer resultIterator.Close()
+
+	// buffer 是一个包含查询结果数据的json数组
+	var  buffer bytes.Buffer
+	buffer.WriteString("[")
+
+	bArrayMemberAlreadyWritten := false
+	for resultIterator.HasNext(){
+		queryResponse, err := resultIterator.Next()
+		if err != nil{
+			return shim.Error(err.Error())
+		}
+
+		// 判断是否加“,”号
+		if bArrayMemberAlreadyWritten == true{
+			buffer.WriteString(",")
+		}
+
+		buffer.WriteString("{\"key\":}")
+		buffer.WriteString("\"")
+		buffer.WriteString(queryResponse.Key)
+		buffer.WriteString("\"")
+
+		buffer.WriteString(",\"Record\":")
+		buffer.WriteString(string(queryResponse.Value))
+		buffer.WriteString("}")
+		bArrayMemberAlreadyWritten = true
+	}
+	buffer.WriteString("]")
+
+	fmt.Printf("- getMarbleByRange queryResult:\n%s\n", buffer.String())
+	return shim.Success(buffer.Bytes())
 }
 
 
