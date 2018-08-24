@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"encoding/json"
+	"bytes"
 )
 
 /*
@@ -52,19 +53,19 @@ func (m *marbleChainCode)Invoke(stub shim.ChaincodeStubInterface) pb.Response{
 		return m.initMarble(stub,args)
 	}else if fc == "transferMarble"{
 		return m.transferMarble(stub,args)
-	}else if fc == "transferMarbleBaseOnColor"{
-		return m.transferMarbleBaseOnColor(stub,args)
+	}else if fc == "transferMarblesBasedOnColor"{
+		return m.transferMarblesBasedOnColor(stub,args)
 	}else if fc == "delete"{
 		return m.delete(stub,args)
 	}else if fc == "readMarble"{
 		return m.readMarble(stub,args)
-	}else if fc == "queryMarbleByOwer"{
-		return m.queryMarbleByOwer(stub,args)
+	}else if fc == "queryMarblesByOwner"{
+		return m.queryMarblesByOwner(stub,args)
 	}else if fc == "queryMarbles"{
 		return m.queryMarbles(stub,args)
-	} else if function == "getHistoryForMarble" {
+	} else if fc == "getHistoryForMarble" {
 		return m.getHistoryForMarble(stub, args)
-	} else if function == "getMarblesByRange" {
+	} else if fc == "getMarblesByRange" {
 		return m.getMarblesByRange(stub, args)
 	}
 	return shim.Error("Received Unknown function invocation")
@@ -210,3 +211,189 @@ func (m *marbleChainCode)delete(stub shim.ChaincodeStubInterface,args []string) 
 	return shim.Success(nil)
 
 }
+
+
+// 更改Marble的拥有者 ["transferMarble"."marble2","jerry"]
+/*
+	基本逻辑为“先检验参数合法性、读取参数、从账本中中读取对应值、更改参数、写入账本
+*/
+func (m *marbleChainCode)transferMarble(stub shim.ChaincodeStubInterface,args []string) pb.Response{
+	var marbleName string
+	var newOwner string
+	var err error
+	if len(args) !=2{
+		return shim.Error("Incorrect number of Arguments, Excepting 2")
+	}
+
+	marbleName = args[0]
+	newOwner = args[1]
+
+	marbleAsBytes, err := stub.GetState(marbleName)
+	if err != nil{
+		return shim.Error("Failed to read "+ marbleName +"from ledger")
+	}
+	if marbleAsBytes == nil{
+		return shim.Error("the marble"+ marbleName+"is not existed!")
+	}
+
+	// 将读取的值，进行反序列化成结构体
+	marbleObj := marble{}
+	err = json.Unmarshal(marbleAsBytes,&marbleObj)
+	if err != nil{
+		return shim.Error("Failed in the process of json---> struct\n"+err.Error())
+	}
+	// 更改Marble的所有者
+	marbleObj.Owner = newOwner
+
+	marbleAsBytes, err = json.Marshal(marbleObj)
+	if err != nil{
+		return shim.Error(err.Error())
+	}
+
+	err = stub.PutState(marbleName,marbleAsBytes)
+	if err != nil{
+		return  shim.Error(err.Error())
+	}
+
+	return shim.Success(nil)
+}
+
+// 更改指定颜色的所有大理石的拥有者 ["transferMarblesBasedOnColor","blue","jerry"]
+/*
+	这里编程的基本逻辑也是：检查参数、读取、更改。
+
+*/
+func (m *marbleChainCode)transferMarblesBasedOnColor(stub shim.ChaincodeStubInterface,args []string) pb.Response{
+	if len(args) != 2{
+		return shim.Error("Incorrect number of arguments. Excepting 2")
+	}
+
+	color := args[0]
+	newOwner := args[1]
+
+	coloredMarbleResultsIterator, err := stub.GetStateByPartialCompositeKey("color~name",[]string{color})
+	if err != nil{
+		return shim.Error(err.Error())
+	}
+
+	defer  coloredMarbleResultsIterator.Close()
+
+	// 遍历每一个marble，更改其拥有者
+	var i int
+	for i = 0;coloredMarbleResultsIterator.HasNext();i++{
+		responseRange, err := coloredMarbleResultsIterator.Next()
+		if err != nil{
+			return shim.Error(err.Error())
+		}
+
+		//  从复合键中分离出color 和 name
+		objectType, compositeKeyParts, err := stub.SplitCompositeKey(responseRange.Key)
+		if err != nil{
+			return shim.Error(err.Error())
+		}
+		returnColor := compositeKeyParts[0]
+		returnMarbleName := compositeKeyParts[1]
+
+		fmt.Printf("- found a marble form index:%s color:%s name %s",objectType, returnColor, returnMarbleName)
+
+		response := m.transferMarble(stub,[]string{returnMarbleName,newOwner})
+
+		if response.Status != shim.OK{
+			return shim.Error("Transfer failed:" + response.Message)
+		}
+	}
+
+	responsePayload := fmt.Sprintf("Transferred %d %s marble to %s", i, color, newOwner)
+	fmt.Println("- end transferMarbleBasedOnColor:" + responsePayload)
+	return shim.Success(nil)
+}
+
+// 返回指定拥有者拥有的所有大理石的信息 ["queryMarble","{\"\selector":{\"owner\":\"Tom\"}}"]
+func (m *marbleChainCode)queryMarbles(stub shim.ChaincodeStubInterface,args []string) pb.Response{
+	// 根据查询字符串来对账本进行查询
+	if len(args) < 1{
+		return shim.Error("Incorrect number of arguments.Excepting 1")
+	}
+
+	queryString := args[0]
+
+	queryResults, err := getQueryResultForQueryString(stub, queryString)
+	if err != nil{
+		return shim.Error(err.Error())
+	}
+	return shim.Success(queryResults)
+}
+
+
+// 进行富查询！！！
+func getQueryResultForQueryString(stub shim.ChaincodeStubInterface,queryString string)([]byte, error)  {
+	fmt.Printf("- getQueryResultForQueryString queryString:\n%s\n", queryString)
+
+	resultsIterator, err := stub.GetQueryResult(queryString)
+	if err != nil{
+		return nil, err
+	}
+	defer resultsIterator.Close()
+
+	var buffer bytes.Buffer
+	buffer.WriteString("[")
+
+	bArrayMemberAlreadyWritten := false
+	for resultsIterator.HasNext(){
+		queryResponse, err := resultsIterator.Next()
+		if err != nil{
+			return nil, err
+		}
+
+		if bArrayMemberAlreadyWritten == true{
+			buffer.WriteString(",")
+		}
+		buffer.WriteString("{\"key\":")
+		buffer.WriteString("\"")
+		buffer.WriteString(queryResponse.Key)
+		buffer.WriteString("\"")
+
+		buffer.WriteString(", \"Record\":")
+		buffer.WriteString(string(queryResponse.Value))
+		buffer.WriteString("}")
+		bArrayMemberAlreadyWritten = true
+	}
+	buffer.WriteString("]")
+
+	fmt.Printf("- getQueryResultForQUeryString queryResult:\n%s\n",buffer.String())
+
+	return buffer.Bytes(),nil
+
+
+}
+
+// 输入参数["queryMarbleByOwner","tom"]
+func (m *marbleChainCode)queryMarblesByOwner(stub shim.ChaincodeStubInterface,args []string) pb.Response{
+	if len(args) != 1{
+		return shim.Error("Incorrect number of arguments. Excepting 1")
+	}
+
+	owner := strings.ToLower(args[0])
+
+	queryString := fmt.Sprintf("{\"selector\":{\"docType\":\"marble\",\"owner\",\"%s\"}}",owner)
+
+	queryResults, err := getQueryResultForQueryString(stub, queryString)
+
+	if err != nil{
+		return shim.Error(err.Error())
+	}
+	return shim.Success(queryResults)
+
+}
+
+func (m *marbleChainCode)getHistoryForMarble(stub shim.ChaincodeStubInterface,args []string) pb.Response{
+
+
+}
+
+func (m *marbleChainCode)getMarblesByRange(stub shim.ChaincodeStubInterface,args []string) pb.Response{
+
+
+}
+
+
