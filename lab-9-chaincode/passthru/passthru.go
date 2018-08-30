@@ -13,6 +13,7 @@ type PassthruChaincode struct {
 
 //将接收的参数，转换为ChainCode需要用到的参数
 func toChainCodeArgs(args ...string)[][]byte{
+	// [][]byte表示的是二维数组，本段代码是将多个[]byte数组合并成一个[]byte
 	bargs := make([][]byte,len(args))
 	for i,arg := range args{
 		bargs[i] = []byte(arg)

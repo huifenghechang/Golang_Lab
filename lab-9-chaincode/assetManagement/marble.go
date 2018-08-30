@@ -310,6 +310,7 @@ func (m *marbleChainCode)transferMarblesBasedOnColor(stub shim.ChaincodeStubInte
 }
 
 // 返回指定拥有者拥有的所有大理石的信息 ["queryMarble","{\"\selector":{\"owner\":\"Tom\"}}"]
+// couchDB支持富查询！以上传入的为富查询的语句。
 func (m *marbleChainCode)queryMarbles(stub shim.ChaincodeStubInterface,args []string) pb.Response{
 	// 根据查询字符串来对账本进行查询
 	if len(args) < 1{
@@ -340,6 +341,7 @@ func getQueryResultForQueryString(stub shim.ChaincodeStubInterface,queryString s
 	buffer.WriteString("[")
 
 	bArrayMemberAlreadyWritten := false
+	// 将查询到的数据，以json数组的形式返回
 	for resultsIterator.HasNext(){
 		queryResponse, err := resultsIterator.Next()
 		if err != nil{
