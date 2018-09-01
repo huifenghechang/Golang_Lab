@@ -10,13 +10,14 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"time"
+	"strconv"
 )
 
 type EduCertify struct {
 
 }
 
-var BackGroundNo int = 0
 var RecordNO int = 0
 
 type School struct {
@@ -72,7 +73,10 @@ func (e *EduCertify) Invoke(stub shim.ChaincodeStubInterface) pb.Response{
 		return e.createSchool(stub, args)
 	}else if function == "createStudent"{
 		return e.createStudent(stub, args)
+	}else if function == "enrollStudent"{
+		return e.enrollStudent(stub, args)
 	}
+	return shim.Success(nil)
 }
 
 /*
@@ -189,6 +193,81 @@ func writeStudent(stub shim.ChaincodeStubInterface, student Student) error {
 	err = stub.PutState(student.Address,studentBytes)
 	if err != nil{
 		return errors.New("Failed to write into BlcokChain")
+	}
+	return nil
+}
+
+/*
+ *enrollStudent(stub, args)
+  args[0] 学校账号地址
+  args[1] 学校签名
+  args[2] 学生账户地址
+  基本思路：
+	根据学校地址，查找学校；根据学生地址，查找学生。
+	将学生添加至studentAddress[]数组中；
+	保存。
+*/
+
+func (e *EduCertify) enrollStudent(stub shim.ChaincodeStubInterface, args []string) pb.Response{
+	if len(args) != 3{
+		return shim.Error("Incorrect number of argument. Excepting 3")
+	}
+
+	var school School
+	var schoolBytes []byte
+	var err error
+
+	var schAddress string
+	var stuAddress string
+	var schSign string
+
+	schAddress = args[0]
+	schSign = args[1]
+	stuAddress = args[2]
+
+	// 根据账号信息，获取学校信息
+	schoolBytes, err = stub.GetState(stuAddress)
+	if err != nil{
+		return shim.Error("Error retrieving data")
+	}
+	err = json.Unmarshal(schoolBytes,&school)
+	if err != nil{
+		return shim.Error("Error UnMarshall data")
+	}
+
+	var record Record
+	record = Record{Id:RecordNO,SchoolAddress:schAddress,SchoolSign:schSign,ModifyTime:time.Now().Unix(),ModifyOperation:"2"}
+
+	err = writeRecord(stub, record)
+	if err != nil{
+		return shim.Error("Error write record")
+	}
+
+	// append 函数，用于对切片增加一个成员
+	school.StudentAddress = append(school.StudentAddress, stuAddress)
+	err = writeSchool(stub,school)
+	if err != nil{
+		return shim.Error("Error write school")
+	}
+
+	RecordNO = RecordNO + 1
+	recordBytes, err := json.Marshal(&record)
+	if err != nil{
+		return shim.Error("Error retrieving recodeBytes")
+	}
+
+	return shim.Success(recordBytes)
+}
+
+func writeRecord(stub shim.ChaincodeStubInterface, record Record) (error) {
+	recordBytes, err := json.Marshal(record)
+	if err != nil{
+		return errors.New("Failed to Marshal record"+ err.Error())
+	}
+	recordIdStr:= strconv.Itoa(record.Id)
+	err = stub.PutState(recordIdStr,recordBytes)
+	if err != nil{
+		return err
 	}
 	return nil
 }
