@@ -3,7 +3,8 @@
 在Go语言中，对接口进行类型断言，一共有两种方法
 
 
-`
+````
+
 var k = 8
 
 // 方法1: comma-ok
@@ -16,4 +17,6 @@ switch value = k.(type){
     case int: //
     case string: //
 }
-`
+
+
+````
