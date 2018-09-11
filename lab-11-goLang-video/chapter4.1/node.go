@@ -1,12 +1,13 @@
 package main
+
 import "fmt"
 
 /*
 	struct 没有构造函数，使用工厂函数来定制结构体实例
 */
 
-type TreeNode struct{
-	Value int
+type TreeNode struct {
+	Value       int
 	left, right *TreeNode
 }
 
@@ -17,10 +18,10 @@ type TreeNode struct{
 
 */
 func createTreeNode(value int) *TreeNode {
-	return &TreeNode{Value:value}
+	return &TreeNode{Value: value}
 }
 
-func main()  {
+func main() {
 	var root TreeNode
 
 	// 给结构体赋值
@@ -30,13 +31,11 @@ func main()  {
 	// 在结构体中，无论是成员，还是指针，一律用.来表示
 	root.right.left = new(TreeNode)
 	nodes := []TreeNode{
-		{Value:3},
+		{Value: 3},
 		{},
-		{6,nil,&root},
+		{6, nil, &root},
 	}
 
 	fmt.Println(nodes)
 
-
 }
-
